@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <unistd.h>
+#include <signal.h>
 #include <string.h>
 #include <errno.h>
 #include <pthread.h>
@@ -33,54 +34,21 @@ connectToUnixServer(const string &filename) {
 	
 	fd = socket(PF_UNIX, SOCK_STREAM, 0);
 	if (fd == -1) {
-		throw runtime_error("Cannot create a Unix socket file descriptor");
+		perror("socket()");
+		exit(1);
 	}
 	
 	addr.sun_family = AF_UNIX;
 	memcpy(addr.sun_path, filename.c_str(), filename.size());
 	addr.sun_path[filename.size()] = '\0';
 	
-	bool retry = true;
-	int counter = 0;
-	while (retry) {
-		try {
-			ret = connect(fd, (const sockaddr *) &addr, sizeof(addr));
-		} catch (...) {
-			do {
-				ret = close(fd);
-			} while (ret == -1 && errno == EINTR);
-			throw;
-		}
-		if (ret == -1) {
-			perror("connect()");
-			#if defined(sun) || defined(__sun)
-				/* Solaris has this nice kernel bug where connecting to
-				 * a newly created Unix socket which is obviously
-				 * connectable can cause an ECONNREFUSED. So we retry
-				 * in a loop.
-				 */
-				retry = errno == ECONNREFUSED;
-			#else
-				retry = false;
-			#endif
-			retry = false;
-			retry = retry && counter < 9;
-			
-			if (retry) {
-				usleep((useconds_t) (10000 * pow((double) 2, (double) counter)));
-				counter++;
-			} else {
-				do {
-					ret = close(fd);
-				} while (ret == -1 && errno == EINTR);
-				throw runtime_error("Cannot connect");
-			}
-		} else {
-			return fd;
-		}
+	ret = connect(fd, (const sockaddr *) &addr, sizeof(addr));
+	if (ret == -1) {
+		perror("connect()");
+		exit(1);
+	} else {
+		return fd;
 	}
-	abort();   // Never reached.
-	return -1; // Shut up compiler warning.
 }
 
 static void *
@@ -122,6 +90,7 @@ main(int argc, char *argv[]) {
 		filename = args[0];
 	}
 	
+	signal(SIGPIPE, SIG_IGN);
 	request.assign("\000\000\000@REQUEST_METHOD\000PING\000PATH_INFO\000/\000PASSENGER_CONNECT_PASSWORD\0001234\000", 68);
 	
 	struct timeval startTime, endTime;
