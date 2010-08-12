@@ -19,6 +19,13 @@ using namespace std;
 
 #define NTHREADS 10
 
+#ifndef AF_LOCAL
+	#define AF_LOCAL AF_UNIX
+#endif
+#ifndef PF_LOCAL
+	#define PF_LOCAL PF_UNIX
+#endif
+
 static int server;
 static pthread_t threads[NTHREADS];
 static const char response[] =

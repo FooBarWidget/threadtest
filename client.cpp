@@ -16,6 +16,13 @@
 
 using namespace std;
 
+#ifndef AF_LOCAL
+	#define AF_LOCAL AF_UNIX
+#endif
+#ifndef PF_LOCAL
+	#define PF_LOCAL PF_UNIX
+#endif
+
 static int concurrency = 10;
 static int iterations = 10000;
 static pthread_t *threads;
