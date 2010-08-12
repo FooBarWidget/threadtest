@@ -15,9 +15,8 @@
 
 using namespace std;
 
-#define ITERATIONS 100000
-
 static int concurrency = 10;
+static int iterations = 10000;
 static pthread_t *threads;
 static string filename;
 static string request;
@@ -87,7 +86,7 @@ connectToUnixServer(const string &filename) {
 static void *
 workerMain(void *arg) {
 	char buf[1024 * 8];
-	for (int i = 0; i < (ITERATIONS) / concurrency; i++) {
+	for (int i = 0; i < iterations / concurrency; i++) {
 		int fd = connectToUnixServer(filename);
 		bool eof = false;
 		write(fd, request.data(), request.size());
@@ -108,6 +107,9 @@ main(int argc, char *argv[]) {
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-c") == 0) {
 			concurrency = atoi(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "-n") == 0) {
+			iterations = atoi(argv[i + 1]);
 			i++;
 		} else {
 			args.push_back(argv[i]);
@@ -137,7 +139,7 @@ main(int argc, char *argv[]) {
 	unsigned long long diff =
 		((unsigned long long) endTime.tv_sec * 1000000 + endTime.tv_usec) -
 		((unsigned long long) startTime.tv_sec * 1000000 + startTime.tv_usec);
-	printf("%.1f req/sec\n", (ITERATIONS) / (diff / 1000000.0));
+	printf("%.1f req/sec\n", iterations / (diff / 1000000.0));
 	
 	return 0;
 }
