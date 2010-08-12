@@ -2,19 +2,21 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <pthread.h>
 #include <string.h>
 #include <queue>
 
 using namespace std;
 
-#define TEST_THREAD
-#define NTHREADS 4
-#define ITERATIONS 500000
+//#define TEST_THREAD
+#define NTHREADS 8
+#define ITERATIONS 300000
 
 typedef void (*Callback)(void *sender, void *data);
 
 static pthread_t threads[NTHREADS];
+static int nullFile;
 
 
 void
@@ -33,7 +35,7 @@ static void
 writeOutput(int size) {
 	char buf[size];
 	memset(buf, 0, size);
-	write(2, buf, size);
+	write(nullFile, buf, size);
 }
 
 static void
@@ -153,7 +155,7 @@ main() {
 	int i;
 	
 	freopen("/dev/zero", "rb", stdin);
-	freopen("/dev/null", "a", stderr);
+	nullFile = open("/dev/null", O_WRONLY | O_APPEND, 0);
 	
 	for (i = 0; i < NTHREADS; i++) {
 		pthread_create(&threads[i], NULL, &workerMain, NULL);
@@ -182,13 +184,11 @@ struct Waiter {
 };
 
 struct Pool {
-	struct ev_loop *loop;
 	queue<Waiter> waiters;
 	pthread_mutex_t mutex;
 	int available;
 	
-	Pool(struct ev_loop *loop) {
-		this->loop = loop;
+	Pool() {
 		pthread_mutex_init(&mutex, NULL);
 		available = 7;
 	}
@@ -232,11 +232,18 @@ struct Worker {
 	pthread_mutex_t mutex;
 	vector<Object *> checkedOutObjects;
 	ev_async async;
+	int state;
+	bool inIdle;
+	pthread_t thread;
 };
 
 static void
 onAsync(struct ev_loop *loop, ev_async *w, int revents) {
 	Worker *worker = (Worker *) w->data;
+	assert(worker->state == 2 || worker->state == 3);
+	
+	worker->state = 4;
+	
 	ScopedLock lock(&worker->mutex);
 	vector<Object *> objects = worker->checkedOutObjects;
 	worker->checkedOutObjects.clear();
@@ -263,14 +270,17 @@ static void
 checkedOut(void *object, void *data) {
 	Object *o = (Object *) object;
 	Worker *worker = (Worker *) data;
+	assert(worker->state == 1);
 	
 	ScopedLock lock(&worker->mutex);
 	worker->checkedOutObjects.push_back(o);
 	lock.unlock();
 	
-	if (pool->loop == worker->loop) {
+	if (pthread_self() == worker->thread) {
+		worker->state = 2;
 		onAsync(worker->loop, &worker->async, 0);
 	} else {
+		worker->state = 3;
 		ev_async_send(worker->loop, &worker->async);
 	}
 }
@@ -278,14 +288,21 @@ checkedOut(void *object, void *data) {
 static void
 onIdle(struct ev_loop *loop, ev_idle *w, int revents) {
 	Worker *worker = (Worker *) w->data;
+	assert((worker->iteration == 0 && worker->state == 0) || worker->state == 4);
+	
 	if (worker->iteration == (ITERATIONS) / (NTHREADS)) {
+		worker->state = -1;
 		ev_unloop(worker->loop, EVUNLOOP_ONE);
 		return;
 	}
 	
-	readInput();
+	readInput(); // Emulate accept()
+	
 	ev_idle_stop(worker->loop, &worker->idle);
+	worker->state = 1;
+	worker->inIdle = true;
 	pool->checkout(checkedOut, worker);
+	worker->inIdle = false;
 }
 
 static void *
@@ -295,13 +312,17 @@ workerMain(void *arg) {
 	ev_idle_init(&worker.idle, onIdle);
 	worker.idle.data = &worker;
 	worker.iteration = 0;
+	worker.inIdle = false;
 	pthread_mutex_init(&worker.mutex, NULL);
 	ev_async_init(&worker.async, onAsync);
 	worker.async.data = &worker;
+	worker.state = 0;
+	worker.thread = pthread_self();
 	
 	ev_idle_start(worker.loop, &worker.idle);
 	ev_async_start(worker.loop, &worker.async);
 	ev_loop(worker.loop, 0);
+	assert(worker.state == -1);
 	
 	char c;
 	read(exitPipe[0], &c, 1);
@@ -313,7 +334,7 @@ main() {
 	int i;
 	
 	freopen("/dev/zero", "rb", stdin);
-	freopen("/dev/null", "a", stderr);
+	nullFile = open("/dev/null", O_WRONLY | O_APPEND, 0);
 	makeNonBlock(0);
 	makeNonBlock(2);
 	
@@ -321,7 +342,7 @@ main() {
 	for (i = 0; i < NTHREADS; i++) {
 		loops[i] = ev_loop_new(EVFLAG_AUTO);
 	}
-	pool = new Pool(loops[0]);
+	pool = new Pool();
 	for (i = 0; i < NTHREADS; i++) {
 		pthread_create(&threads[i], NULL, &workerMain, loops[i]);
 	}
