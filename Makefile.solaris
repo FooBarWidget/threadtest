@@ -1,0 +1,9 @@
+.PHONY: default
+
+default: accepttest client
+
+accepttest: accepttest.cpp
+	g++ -Wall -g accepttest.cpp -o accepttest -lxnet -lsocket -lnsl
+
+client: client.cpp
+	g++ -Wall -g client.cpp -o client -lxnet -lsocket -lnsl
