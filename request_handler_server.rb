@@ -15,6 +15,7 @@ class SimpleRequestHandler
 	def start
 		File.unlink('server.sock') rescue nil
 		server = UNIXServer.new('server.sock')
+		server.listen(1024)
 		begin
 			main(server)
 		ensure
@@ -139,31 +140,28 @@ end
 class ThreadedRequestHandler3 < SimpleRequestHandler
 	def initialize
 		super
-		thread_count  = 10
+		@thread_count  = 10
 		@threads      = []
 		@a, @b        = IO.pipe
-		thread_count.times do
-			@threads << Thread.new(&method(:thread_main))
-		end
+		@jruby        = RUBY_PLATFORM == 'java'
 	end
 	
 	def thread_main
-		while !@server
-			sleep 0.5
-		end
-		
 		buffer = ''
 		while true
-			ios = select([@server, @a, @b]).first
-			if true
+			if @jruby
+				client = @server.accept
+			elsif true
+				ios = select([@server, @a, @b]).first
 				begin
-					client = @server.accept
+					client = @server.accept_nonblock
 				rescue Errno::EAGAIN
 					# Noticably improves performance
-					#sleep rand(0.1)
+					sleep rand(0.1)
 					next
 				end
 			else
+				ios = select([@server, @a, @b]).first
 				fd = NativeSupport.accept(@server.fileno)
 				if fd.nil?
 					sleep rand(0.25)
@@ -184,6 +182,9 @@ class ThreadedRequestHandler3 < SimpleRequestHandler
 	
 	def main(server)
 		@server = server
+		@thread_count.times do
+			@threads << Thread.new(&method(:thread_main))
+		end
 		sleep
 	end
 end

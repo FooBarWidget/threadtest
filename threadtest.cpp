@@ -10,8 +10,8 @@
 using namespace std;
 
 //#define TEST_THREAD
-#define NTHREADS 8
-#define ITERATIONS 300000
+#define NTHREADS 10
+#define ITERATIONS 9000
 
 typedef void (*Callback)(void *sender, void *data);
 
@@ -276,7 +276,7 @@ checkedOut(void *object, void *data) {
 	worker->checkedOutObjects.push_back(o);
 	lock.unlock();
 	
-	if (pthread_self() == worker->thread) {
+	if (false && pthread_self() == worker->thread) {
 		worker->state = 2;
 		onAsync(worker->loop, &worker->async, 0);
 	} else {
@@ -293,6 +293,8 @@ onIdle(struct ev_loop *loop, ev_idle *w, int revents) {
 	if (worker->iteration == (ITERATIONS) / (NTHREADS)) {
 		worker->state = -1;
 		ev_unloop(worker->loop, EVUNLOOP_ONE);
+		// TODO: don't quit this loop until all the other threads are done too,
+		// because they need to signal this loop's async watcher.
 		return;
 	}
 	
