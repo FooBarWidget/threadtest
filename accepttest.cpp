@@ -17,7 +17,7 @@
 
 using namespace std;
 
-#define NTHREADS 20
+#define NTHREADS 10
 
 static int server;
 static pthread_t threads[NTHREADS];
@@ -241,14 +241,25 @@ blockingAccept(void *arg) {
 }
 
 int
-main() {
+main(int argc, char *argv[]) {
 	int i;
+	void *(*threadMain)(void *) = blockingAccept;
 	
 	signal(SIGPIPE, SIG_IGN);
 	server = createUnixServer("server.sock");
 	
+	if (argc > 1) {
+		if (strcmp(argv[0], "1") == 0) {
+			threadMain = blockingAccept;
+		} else if (strcmp(argv[0], "2") == 0) {
+			threadMain = nonBlockingAccept;
+		} else if (strcmp(argv[0], "3") == 0) {
+			threadMain = nonBlockingAcceptWithFallback;
+		}
+	}
+	
 	for (i = 0; i < NTHREADS; i++) {
-		pthread_create(&threads[i], NULL, &blockingAccept, NULL);
+		pthread_create(&threads[i], NULL, threadMain, NULL);
 	}
 	for (i = 0; i < NTHREADS; i++) {
 		pthread_join(threads[i], NULL);
